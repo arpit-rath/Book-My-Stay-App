@@ -1,54 +1,123 @@
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * Abstract Room class representing common room properties.
+ */
+abstract class Room {
+    protected String type;
+    protected double price;
+    protected String amenities;
+
+    public Room(String type, double price, String amenities) {
+        this.type = type;
+        this.price = price;
+        this.amenities = amenities;
+    }
+
+    public String getType() {
+        return type;
+    }
+
+    public double getPrice() {
+        return price;
+    }
+
+    public String getAmenities() {
+        return amenities;
+    }
+}
+
+/* Concrete Room Types */
+class SingleRoom extends Room {
+    public SingleRoom() {
+        super("Single Room", 3000, "1 Bed, Free WiFi");
+    }
+}
+
+class DoubleRoom extends Room {
+    public DoubleRoom() {
+        super("Double Room", 5000, "2 Beds, Free WiFi, TV");
+    }
+}
+
+class SuiteRoom extends Room {
+    public SuiteRoom() {
+        super("Suite Room", 9000, "King Bed, Living Area, Premium WiFi");
+    }
+}
+
+/**
+ * Centralized Room Inventory using HashMap
+ */
 class RoomInventory {
 
     private HashMap<String, Integer> inventory;
 
-    // Constructor initializes room availability
     public RoomInventory() {
         inventory = new HashMap<>();
-
         inventory.put("Single Room", 5);
         inventory.put("Double Room", 3);
-        inventory.put("Suite Room", 2);
+        inventory.put("Suite Room", 0); // Example unavailable room
     }
 
-    // Retrieve availability of a specific room type
+    // Read-only access to inventory
     public int getAvailability(String roomType) {
         return inventory.getOrDefault(roomType, 0);
     }
+}
 
-    // Update availability in a controlled way
-    public void updateAvailability(String roomType, int change) {
-        int current = inventory.getOrDefault(roomType, 0);
-        inventory.put(roomType, current + change);
+/**
+ * Search Service – provides read-only room search functionality
+ */
+class SearchService {
+
+    private RoomInventory inventory;
+
+    public SearchService(RoomInventory inventory) {
+        this.inventory = inventory;
     }
 
-    // Display full inventory
-    public void displayInventory() {
-        System.out.println("Current Room Inventory:");
-        for (Map.Entry<String, Integer> entry : inventory.entrySet()) {
-            System.out.println(entry.getKey() + " : " + entry.getValue());
+    public void searchAvailableRooms(Room[] rooms) {
+        System.out.println("Available Rooms:\n");
+
+        for (Room room : rooms) {
+
+            int available = inventory.getAvailability(room.getType());
+
+            // Defensive check: only show rooms with availability > 0
+            if (available > 0) {
+                System.out.println("Room Type: " + room.getType());
+                System.out.println("Price: ₹" + room.getPrice());
+                System.out.println("Amenities: " + room.getAmenities());
+                System.out.println("Available Rooms: " + available);
+                System.out.println();
+            }
         }
     }
 }
 
-/* Application Entry Point */
-public class HotelInventoryApp {
+/**
+ * Application Entry Point
+ */
+public class HotelSearchApp {
 
     public static void main(String[] args) {
 
-        // Initialize inventory system
+        // Initialize inventory
         RoomInventory inventory = new RoomInventory();
 
-        // Display current inventory
-        inventory.displayInventory();
+        // Create room domain objects
+        Room[] rooms = {
+                new SingleRoom(),
+                new DoubleRoom(),
+                new SuiteRoom()
+        };
 
-        // Example update (booking a room)
-        inventory.updateAvailability("Single Room", -1);
+        // Initialize search service
+        SearchService searchService = new SearchService(inventory);
 
-        System.out.println("\nAfter Booking One Single Room:");
-        inventory.displayInventory();
+        // Guest searches for available rooms
+        searchService.searchAvailableRooms(rooms);
     }
 }
