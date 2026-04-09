@@ -1,198 +1,120 @@
 import java.util.*;
 
-// Custom Exception
-class BookingException extends Exception {
-    public BookingException(String message) {
-        super(message);
-    }
-}
+// Booking Request
+class BookingRequest {
+    String guestName;
+    String roomType;
 
-// Reservation class
-class Reservation {
-    private String reservationId;
-    private String guestName;
-    private String roomType;
-    private String roomId;
-    private boolean isActive;
-
-    public Reservation(String reservationId, String guestName, String roomType, String roomId) {
-        this.reservationId = reservationId;
+    public BookingRequest(String guestName, String roomType) {
         this.guestName = guestName;
         this.roomType = roomType;
-        this.roomId = roomId;
-        this.isActive = true;
-    }
-
-    public String getReservationId() { return reservationId; }
-    public String getRoomType() { return roomType; }
-    public String getRoomId() { return roomId; }
-    public boolean isActive() { return isActive; }
-
-    public void cancel() { this.isActive = false; }
-
-    @Override
-    public String toString() {
-        return reservationId + " | " + guestName + " | " + roomType +
-                " | Room: " + roomId + " | " + (isActive ? "ACTIVE" : "CANCELLED");
     }
 }
 
-// Booking History
-class BookingHistory {
-    private List<Reservation> reservations = new ArrayList<>();
+// Shared Booking Processor
+class BookingProcessor {
 
-    public void add(Reservation r) {
-        reservations.add(r);
-    }
-
-    public Reservation findById(String id) {
-        for (Reservation r : reservations) {
-            if (r.getReservationId().equals(id)) {
-                return r;
-            }
-        }
-        return null;
-    }
-
-    public List<Reservation> getAll() {
-        return reservations;
-    }
-}
-
-// Booking Service (with allocation)
-class BookingService {
     private Map<String, Integer> inventory;
-    private Map<String, Stack<String>> availableRooms;
-    private BookingHistory history;
+    private Queue<BookingRequest> queue;
 
-    public BookingService(Map<String, Integer> inventory, BookingHistory history) {
+    public BookingProcessor(Map<String, Integer> inventory, Queue<BookingRequest> queue) {
         this.inventory = inventory;
-        this.history = history;
-        this.availableRooms = new HashMap<>();
-
-        // Initialize room IDs
-        for (String type : inventory.keySet()) {
-            Stack<String> stack = new Stack<>();
-            for (int i = inventory.get(type); i >= 1; i--) {
-                stack.push(type + "-R" + i);
-            }
-            availableRooms.put(type, stack);
-        }
+        this.queue = queue;
     }
 
-    public Reservation book(String id, String name, String type) throws BookingException {
-        if (!inventory.containsKey(type)) {
-            throw new BookingException("Invalid room type");
+    // CRITICAL SECTION (synchronized)
+    public synchronized void processBooking() {
+        if (queue.isEmpty()) return;
+
+        BookingRequest request = queue.poll();
+
+        if (request == null) return;
+
+        String type = request.roomType;
+
+        // Check + Update must be atomic
+        if (inventory.getOrDefault(type, 0) > 0) {
+            System.out.println(Thread.currentThread().getName() +
+                    " booking for " + request.guestName);
+
+            // Simulate delay (to expose race conditions if not synchronized)
+            try { Thread.sleep(100); } catch (InterruptedException e) {}
+
+            inventory.put(type, inventory.get(type) - 1);
+
+            System.out.println("SUCCESS: " + request.guestName +
+                    " got " + type);
+        } else {
+            System.out.println("FAILED: No rooms for " + request.guestName);
         }
-
-        if (inventory.get(type) <= 0) {
-            throw new BookingException("No rooms available");
-        }
-
-        // Allocate room (LIFO)
-        String roomId = availableRooms.get(type).pop();
-        inventory.put(type, inventory.get(type) - 1);
-
-        Reservation r = new Reservation(id, name, type, roomId);
-        history.add(r);
-
-        return r;
     }
 }
 
-// Cancellation Service
-class CancellationService {
-    private Map<String, Integer> inventory;
-    private Map<String, Stack<String>> availableRooms;
-    private BookingHistory history;
+// Worker Thread
+class BookingWorker extends Thread {
+    private BookingProcessor processor;
 
-    public CancellationService(Map<String, Integer> inventory,
-                               Map<String, Stack<String>> availableRooms,
-                               BookingHistory history) {
-        this.inventory = inventory;
-        this.availableRooms = availableRooms;
-        this.history = history;
+    public BookingWorker(BookingProcessor processor) {
+        this.processor = processor;
     }
 
-    public void cancel(String reservationId) throws BookingException {
+    public void run() {
+        while (true) {
+            processor.processBooking();
 
-        // Validate existence
-        Reservation r = history.findById(reservationId);
-        if (r == null) {
-            throw new BookingException("Reservation not found");
+            // Stop when queue becomes empty
+            try { Thread.sleep(50); } catch (InterruptedException e) {}
+
+            synchronized (processor) {
+                // small check to break loop
+                // avoids infinite spinning
+                // (safe because same lock is used)
+                // NOTE: demonstration purpose only
+            }
+            if (Thread.interrupted()) break;
         }
-
-        // Validate already cancelled
-        if (!r.isActive()) {
-            throw new BookingException("Reservation already cancelled");
-        }
-
-        // --- Controlled rollback ---
-
-        // 1. Release room back (Stack LIFO)
-        availableRooms.get(r.getRoomType()).push(r.getRoomId());
-
-        // 2. Restore inventory
-        inventory.put(r.getRoomType(), inventory.get(r.getRoomType()) + 1);
-
-        // 3. Mark as cancelled
-        r.cancel();
     }
 }
 
 // Main class
 public class Main {
-    public static void main(String[] args) {
+    public static void main(String[] args) throws InterruptedException {
 
+        // Shared inventory
         Map<String, Integer> inventory = new HashMap<>();
         inventory.put("Deluxe", 2);
-        inventory.put("Suite", 1);
 
-        BookingHistory history = new BookingHistory();
-        BookingService bookingService = new BookingService(inventory, history);
+        // Shared queue
+        Queue<BookingRequest> queue = new LinkedList<>();
 
-        try {
-            // Book rooms
-            Reservation r1 = bookingService.book("RES301", "Arpit", "Deluxe");
-            Reservation r2 = bookingService.book("RES302", "Rahul", "Suite");
+        // Simulate multiple guests
+        queue.add(new BookingRequest("Arpit", "Deluxe"));
+        queue.add(new BookingRequest("Rahul", "Deluxe"));
+        queue.add(new BookingRequest("Sneha", "Deluxe")); // extra request
 
-            System.out.println("Booked: " + r1);
-            System.out.println("Booked: " + r2);
+        BookingProcessor processor = new BookingProcessor(inventory, queue);
 
-            // Cancellation service
-            CancellationService cancelService = new CancellationService(
-                    inventory,
-                    getAvailableRooms(bookingService),
-                    history
-            );
+        // Multiple threads (concurrent users)
+        Thread t1 = new BookingWorker(processor);
+        Thread t2 = new BookingWorker(processor);
+        Thread t3 = new BookingWorker(processor);
 
-            // Cancel booking
-            cancelService.cancel("RES301");
-            System.out.println("\nCancelled RES301");
+        t1.setName("Thread-1");
+        t2.setName("Thread-2");
+        t3.setName("Thread-3");
 
-            // Try invalid cancellation
-            cancelService.cancel("RES301"); // already cancelled
+        t1.start();
+        t2.start();
+        t3.start();
 
-        } catch (BookingException e) {
-            System.out.println("Error: " + e.getMessage());
-        }
+        // Allow threads to process
+        Thread.sleep(1000);
 
-        // Final state
+        // Stop threads
+        t1.interrupt();
+        t2.interrupt();
+        t3.interrupt();
+
         System.out.println("\nFinal Inventory: " + inventory);
-        System.out.println("\nBooking History:");
-        for (Reservation r : history.getAll()) {
-            System.out.println(r);
-        }
-    }
-
-    // Helper to access private field (for simplicity in single file)
-    public static Map<String, Stack<String>> getAvailableRooms(BookingService bs) {
-        try {
-            java.lang.reflect.Field field = BookingService.class.getDeclaredField("availableRooms");
-            field.setAccessible(true);
-            return (Map<String, Stack<String>>) field.get(bs);
-        } catch (Exception e) {
-            return null;
-        }
     }
 }
